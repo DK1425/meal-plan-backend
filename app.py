@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import pandas as pd
 import sqlite3
 import os
+import logging
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -9,6 +10,13 @@ CORS(app)
 
 DATABASE = "meal_plan.db"
 EXCEL_FILE = "meal_plan.xlsx"  # File uploaded to GitHub
+LOG_FILE = "backend_log.txt"  # Log file for debugging
+
+# Set up logging
+logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+logging.info("🚀 Backend Started")
 
 # Initialize Database
 def init_db():
@@ -36,59 +44,77 @@ def init_db():
 
     conn.commit()
     conn.close()
+    logging.info("✅ Database initialized successfully.")
 
 # Load Excel Data into Database
 def load_excel_to_db():
     if not os.path.exists(EXCEL_FILE):
-        print("❌ Excel file not found. Please upload `meal_plan.xlsx` to GitHub.")
+        logging.error("❌ Excel file not found. Please upload `meal_plan.xlsx` to GitHub.")
         return
 
     try:
         df = pd.read_excel(EXCEL_FILE, engine="openpyxl")
+
+        # Check if DataFrame is empty
+        if df.empty:
+            logging.error("❌ Error: The uploaded Excel file is empty!")
+            return
+
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
 
-        cursor.execute("DELETE FROM meals")  # Clear old data
+        # Reset database to ensure fresh data
+        cursor.execute("DELETE FROM meals")
+        conn.commit()
 
+        logging.info("🔄 Inserting meal data into the database...")
+
+        # Insert meal data
         for _, row in df.iterrows():
+            meal_data = (
+                row.get('Day', None),
+                row.get('Meal Type', None),
+                row.get('Primary Meal', None),
+                row.get('Primary Recipe', None),
+                row.get('Alternate Meal', None),
+                row.get('Alternate Recipe', None),
+                row.get('Third Meal Option', None),
+                row.get('Third Meal Recipe', None)
+            )
             cursor.execute('''
                 INSERT INTO meals (day, meal_type, primary_meal, primary_recipe, 
                                   alternate_meal, alternate_recipe, third_meal_option, third_meal_recipe)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                row['Day'],
-                row['Meal Type'],
-                row['Primary Meal'],
-                row['Primary Recipe'],
-                row['Alternate Meal'],
-                row['Alternate Recipe'],
-                row['Third Meal Option'],
-                row['Third Meal Recipe']
-            ))
+            ''', meal_data)
+
+            logging.info(f"✅ Inserted: {meal_data}")
 
         conn.commit()
         conn.close()
-        print("✅ Meal Plan Loaded from Excel into Database!")
+        logging.info("✅ Meal Plan Successfully Loaded from Excel into Database!")
     except Exception as e:
-        print(f"❌ Error loading Excel file: {e}")
+        logging.error(f"❌ Error loading Excel file: {e}")
 
 # Upload Excel File via API
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
+        logging.error("❌ No file uploaded.")
         return jsonify({'message': 'No file uploaded'}), 400
 
     file = request.files['file']
 
     if not file.filename.endswith('.xlsx'):
+        logging.error("❌ Invalid file format. Only .xlsx allowed.")
         return jsonify({'message': 'Invalid file format. Please upload an .xlsx file'}), 400
 
     try:
         file.save(EXCEL_FILE)  # Save the uploaded file
+        logging.info("📂 File uploaded successfully. Reloading database...")
         load_excel_to_db()  # Reload the data
         return jsonify({'message': 'Upload successful'}), 200
     except Exception as e:
-        print(f"❌ Upload Error: {e}")  # Print error to logs
+        logging.error(f"❌ Upload Error: {e}")
         return jsonify({'message': f'Error processing file: {str(e)}'}), 500
 
 # Get Meals for a Specific Day
@@ -115,6 +141,7 @@ def get_meals(day):
             "image_url": f"https://source.unsplash.com/100x100/?food&sig={meal[0]}"  # Generates random meal images
         })
 
+    logging.info(f"📅 Fetching meals for Day {day}: {meal_list}")
     return jsonify({"meals": meal_list, "completed": is_completed})
 
 # Get Completed Days
@@ -125,6 +152,7 @@ def get_completed_days():
     cursor.execute("SELECT day FROM completed_days")
     days = [row[0] for row in cursor.fetchall()]
     conn.close()
+    logging.info(f"✅ Completed Days: {days}")
     return jsonify(days)
 
 # Check if Data Exists
