@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 import pandas as pd
 import sqlite3
 from flask_cors import CORS
-import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -42,9 +41,13 @@ init_db()
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'message': 'No file uploaded'}), 400
-    
+
     file = request.files['file']
-    df = pd.read_excel(file)
+    
+    try:
+        df = pd.read_excel(file)
+    except Exception as e:
+        return jsonify({'message': 'Invalid file format. Please upload a valid Excel file.'}), 400
 
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
@@ -83,7 +86,8 @@ def get_meals(day):
             "primary_meal": meal[3],
             "primary_recipe": meal[4],
             "alternate_meal": meal[5],
-            "third_meal_option": meal[7]
+            "third_meal_option": meal[7],
+            "image_url": f"https://source.unsplash.com/100x100/?food&sig={meal[0]}"  # Generate random meal images
         })
 
     return jsonify({"meals": meal_list, "completed": is_completed})
