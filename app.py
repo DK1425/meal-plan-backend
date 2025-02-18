@@ -26,7 +26,7 @@ def init_db():
             third_meal_recipe TEXT
         )
     ''')
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS completed_days (
             day INTEGER PRIMARY KEY
@@ -49,7 +49,7 @@ def upload_file():
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM meals")  # Clear previous data
+    cursor.execute("DELETE FROM meals")  # Clear existing data
 
     for _, row in df.iterrows():
         cursor.execute('''
@@ -106,5 +106,14 @@ def get_completed_days():
     conn.close()
     return jsonify(days)
 
+@app.route('/has_data', methods=['GET'])
+def check_data():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM meals")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return jsonify({'has_data': count > 0})
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=10000)
