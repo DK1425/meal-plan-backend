@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 import pandas as pd
 import sqlite3
 from flask_cors import CORS
@@ -7,6 +7,7 @@ app = Flask(__name__)
 CORS(app)
 
 DATABASE = "meal_plan.db"
+EXCEL_FILE = "meal_plan.xlsx"  # File manually uploaded to GitHub
 
 # Initialize Database
 def init_db():
@@ -35,37 +36,28 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
-
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({'message': 'No file uploaded'}), 400
-
-    file = request.files['file']
-    
+# Function to Read Excel and Insert Data into Database
+def load_excel_to_db():
     try:
-        df = pd.read_excel(file)
+        df = pd.read_excel(EXCEL_FILE)
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM meals")  # Clear old data
+
+        for _, row in df.iterrows():
+            cursor.execute('''
+                INSERT INTO meals (day, meal_type, primary_meal, primary_recipe, 
+                                  alternate_meal, alternate_recipe, third_meal_option, third_meal_recipe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (row['Day'], row['Meal Type'], row['Primary Meal'], row['Primary Recipe'],
+                  row['Alternate Meal'], row['Alternate Recipe'], row['Third Meal Option'], row['Third Meal Recipe']))
+
+        conn.commit()
+        conn.close()
+        print("✅ Meal Plan Loaded from Excel into Database!")
     except Exception as e:
-        return jsonify({'message': 'Invalid file format. Please upload a valid Excel file.'}), 400
-
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM meals")  # Clear existing data
-
-    for _, row in df.iterrows():
-        cursor.execute('''
-            INSERT INTO meals (day, meal_type, primary_meal, primary_recipe, 
-                              alternate_meal, alternate_recipe, third_meal_option, third_meal_recipe)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (row['Day'], row['Meal Type'], row['Primary Meal'], row['Primary Recipe'],
-              row['Alternate Meal'], row['Alternate Recipe'], row['Third Meal Option'], row['Third Meal Recipe']))
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({'message': 'Upload successful'}), 200
+        print(f"❌ Error loading Excel file: {e}")
 
 @app.route('/meals/<int:day>', methods=['GET'])
 def get_meals(day):
@@ -87,19 +79,10 @@ def get_meals(day):
             "primary_recipe": meal[4],
             "alternate_meal": meal[5],
             "third_meal_option": meal[7],
-            "image_url": f"https://source.unsplash.com/100x100/?food&sig={meal[0]}"  # Generate random meal images
+            "image_url": f"https://source.unsplash.com/100x100/?food&sig={meal[0]}"  # Generates random meal images
         })
 
     return jsonify({"meals": meal_list, "completed": is_completed})
-
-@app.route('/complete/<int:day>', methods=['POST'])
-def mark_day_done(day):
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO completed_days (day) VALUES (?)", (day,))
-    conn.commit()
-    conn.close()
-    return jsonify({'message': f'Day {day} marked as done!'}), 200
 
 @app.route('/completed_days', methods=['GET'])
 def get_completed_days():
@@ -110,14 +93,7 @@ def get_completed_days():
     conn.close()
     return jsonify(days)
 
-@app.route('/has_data', methods=['GET'])
-def check_data():
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM meals")
-    count = cursor.fetchone()[0]
-    conn.close()
-    return jsonify({'has_data': count > 0})
-
 if __name__ == '__main__':
+    init_db()
+    load_excel_to_db()  # Load meal data on startup
     app.run(host="0.0.0.0", port=10000)
