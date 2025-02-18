@@ -169,3 +169,16 @@ if __name__ == '__main__':
     init_db()
     load_excel_to_db()  # Load meal data on startup
     app.run(host="0.0.0.0", port=10000)
+
+@app.route('/debug/meals', methods=['GET'])
+def debug_meals():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM meals")
+    meals = cursor.fetchall()
+    conn.close()
+    
+    if not meals:
+        return jsonify({"message": "❌ No meals found in the database!"})
+    
+    return jsonify({"meals": meals})
