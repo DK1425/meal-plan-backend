@@ -199,3 +199,8 @@ if __name__ == "__main__":
     logging.info("🔄 Force-loading meal_plan.xlsx into the database on startup...")
     load_excel_to_db()
     app.run(host="0.0.0.0", port=10000)
+
+@app.route('/debug/file_exists', methods=['GET'])
+def debug_file_exists():
+    exists = os.path.exists(EXCEL_FILE)
+    return jsonify({"file_exists": exists, "file_path": EXCEL_FILE})
