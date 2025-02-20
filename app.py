@@ -3,6 +3,7 @@ import pandas as pd
 import sqlite3
 import os
 import logging
+import subprocess
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -186,3 +187,11 @@ if __name__ == '__main__':
     print("🔄 Forcing Excel file reload on startup...")
     load_excel_to_db()  # Force reload on startup
     app.run(host="0.0.0.0", port=10000)
+
+@app.route('/debug/installed_packages', methods=['GET'])
+def installed_packages():
+    try:
+        output = subprocess.check_output(['pip', 'freeze']).decode('utf-8')
+        return jsonify({"installed_packages": output.split("\n")})
+    except Exception as e:
+        return jsonify({"error": str(e)})
