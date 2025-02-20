@@ -1,33 +1,23 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 import pandas as pd
 import sqlite3
 import os
-import subprocess
 import logging
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
+# Database and Excel file settings
 DATABASE = "meal_plan.db"
-EXCEL_FILE = "meal_plan.xlsx"
+EXCEL_FILE = "meal_plan.xlsx"  # This will be manually replaced in GitHub
+
 LOG_FILE = "backend_log.txt"
 
 # Set up logging
-logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-logging.info("🚀 Backend Started")
-
-# Ensure openpyxl is installed
-try:
-    import openpyxl
-    logging.info("✅ openpyxl is installed")
-except ImportError:
-    logging.error("❌ Missing 'openpyxl' dependency!")
-    os.system("pip install openpyxl")
-
-# Initialize Database
+# ✅ Initialize the database (Runs ONLY ONCE)
 def init_db():
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
@@ -35,13 +25,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS meals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             day INTEGER,
+            week INTEGER,
             meal_type TEXT,
             primary_meal TEXT,
             primary_recipe TEXT,
-            alternate_meal TEXT,
-            alternate_recipe TEXT,
-            third_meal_option TEXT,
-            third_meal_recipe TEXT
+            alternate_meal_1 TEXT,
+            alternate_recipe_1 TEXT,
+            alternate_meal_2 TEXT,
+            alternate_recipe_2 TEXT
         )
     ''')
     cursor.execute('''
@@ -53,14 +44,16 @@ def init_db():
     conn.close()
     logging.info("✅ Database initialized successfully.")
 
-# Load Excel Data into Database
+# ✅ Load meal data from GitHub meal_plan.xlsx ONLY ONCE
 def load_excel_to_db():
     if not os.path.exists(EXCEL_FILE):
-        logging.error("❌ Excel file not found. Please upload `meal_plan.xlsx` to GitHub.")
+        logging.error("❌ Excel file not found. Upload `meal_plan.xlsx` to GitHub manually.")
         return
-
+    
     try:
         df = pd.read_excel(EXCEL_FILE, engine="openpyxl")
+
+        # Ensure the file is not empty
         if df.empty:
             logging.error("❌ Error: The uploaded Excel file is empty!")
             return
@@ -68,63 +61,47 @@ def load_excel_to_db():
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
 
-        cursor.execute("DELETE FROM meals")
-        conn.commit()
+        # Check if database is already populated
+        cursor.execute("SELECT COUNT(*) FROM meals")
+        if cursor.fetchone()[0] > 0:
+            logging.info("✅ Meal data already loaded, skipping reload.")
+            conn.close()
+            return  # Skip reloading if data already exists
 
+        # ✅ Insert meal data from Excel into the database
+        logging.info("🔄 Inserting meal data into the database...")
         for _, row in df.iterrows():
-            meal_data = (
-                row.get('Day', None),
-                row.get('Meal Type', None),
-                row.get('Primary Meal', None),
-                row.get('Primary Recipe', None),
-                row.get('Alternate Meal', None),
-                row.get('Alternate Recipe', None),
-                row.get('Third Meal Option', None),
-                row.get('Third Meal Recipe', None)
-            )
             cursor.execute('''
-                INSERT INTO meals (day, meal_type, primary_meal, primary_recipe,
-                                   alternate_meal, alternate_recipe, third_meal_option, third_meal_recipe)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', meal_data)
-
-            logging.info(f"✅ Inserted: {meal_data}")
+                INSERT INTO meals (day, week, meal_type, primary_meal, primary_recipe,
+                                  alternate_meal_1, alternate_recipe_1, alternate_meal_2, alternate_recipe_2)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                row.get("Day", None),
+                row.get("Week", None),
+                row.get("Meal Type", None),
+                row.get("Primary Meal", None),
+                row.get("Primary Recipe", None),
+                row.get("Alternate Meal 1", None),
+                row.get("Alternate Recipe 1", None),
+                row.get("Alternate Meal 2", None),
+                row.get("Alternate Recipe 2", None)
+            ))
 
         conn.commit()
         conn.close()
-        logging.info("✅ Meal Plan Successfully Loaded from Excel into Database!")
+        logging.info("✅ Meal Plan Successfully Loaded into Database!")
+
     except Exception as e:
         logging.error(f"❌ Error loading Excel file: {e}")
 
-# Upload Excel File via API
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        logging.error("❌ No file uploaded.")
-        return jsonify({'message': 'No file uploaded'}), 400
-
-    file = request.files['file']
-    if not file.filename.endswith('.xlsx'):
-        logging.error("❌ Invalid file format. Only .xlsx allowed.")
-        return jsonify({'message': 'Invalid file format. Please upload an .xlsx file'}), 400
-
-    try:
-        file.save(EXCEL_FILE)
-        logging.info("📂 File uploaded successfully. Reloading database...")
-        load_excel_to_db()
-        return jsonify({'message': 'Upload successful'}), 200
-    except Exception as e:
-        logging.error(f"❌ Upload Error: {e}")
-        return jsonify({'message': f'Error processing file: {str(e)}'}), 500
-
-# Get Meals for a Specific Day
-@app.route('/meals/<int:day>', methods=['GET'])
-def get_meals(day):
+# ✅ Get meals for a specific day & week
+@app.route('/meals/<int:week>/<int:day>', methods=['GET'])
+def get_meals(week, day):
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM meals WHERE day=?", (day,))
+    cursor.execute("SELECT * FROM meals WHERE week=? AND day=?", (week, day))
     meals = cursor.fetchall()
-
+    
     cursor.execute("SELECT * FROM completed_days WHERE day=?", (day,))
     is_completed = cursor.fetchone() is not None
     conn.close()
@@ -132,18 +109,19 @@ def get_meals(day):
     meal_list = []
     for meal in meals:
         meal_list.append({
-            "meal_type": meal[2],
-            "primary_meal": meal[3],
-            "primary_recipe": meal[4],
-            "alternate_meal": meal[5],
-            "third_meal_option": meal[7],
+            "meal_type": meal[3],
+            "primary_meal": meal[4],
+            "primary_recipe": meal[5],
+            "alternate_meal_1": meal[6],
+            "alternate_recipe_1": meal[7],
+            "alternate_meal_2": meal[8],
+            "alternate_recipe_2": meal[9],
             "image_url": f"https://source.unsplash.com/100x100/?food&sig={meal[0]}"
         })
 
-    logging.info(f"📅 Fetching meals for Day {day}: {meal_list}")
     return jsonify({"meals": meal_list, "completed": is_completed})
 
-# Get Completed Days
+# ✅ Get list of completed days
 @app.route('/completed_days', methods=['GET'])
 def get_completed_days():
     conn = sqlite3.connect(DATABASE)
@@ -151,33 +129,42 @@ def get_completed_days():
     cursor.execute("SELECT day FROM completed_days")
     days = [row[0] for row in cursor.fetchall()]
     conn.close()
-    logging.info(f"✅ Completed Days: {days}")
     return jsonify(days)
 
-# Debug: Check Installed Packages
-@app.route('/debug/installed_packages', methods=['GET'])
-def installed_packages():
-    try:
-        output = subprocess.check_output(['pip', 'freeze']).decode('utf-8')
-        return jsonify({"installed_packages": output.split("\n")})
-    except Exception as e:
-        return jsonify({"error": str(e)})
+# ✅ Check if data exists in the database
+@app.route('/has_data', methods=['GET'])
+def check_data():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM meals")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return jsonify({'has_data': count > 0})
 
-# Debug: Check if File Exists
+# ✅ Debug: Preview meal data
+@app.route('/debug/meals', methods=['GET'])
+def debug_meals():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM meals")
+    meals = cursor.fetchall()
+    conn.close()
+
+    if not meals:
+        return jsonify({"message": "❌ No meals found in the database!"})
+
+    return jsonify({"meals": meals})
+
+# ✅ Debug: Check if meal_plan.xlsx exists
 @app.route('/debug/file_exists', methods=['GET'])
-def check_file():
-    return jsonify({"file_exists": os.path.exists(EXCEL_FILE), "file_path": EXCEL_FILE})
+def debug_file():
+    return jsonify({
+        "file_exists": os.path.exists(EXCEL_FILE),
+        "file_path": EXCEL_FILE
+    })
 
-# Debug: Preview Excel File
-@app.route('/debug/preview_excel', methods=['GET'])
-def preview_excel():
-    try:
-        df = pd.read_excel(EXCEL_FILE, engine="openpyxl")
-        return jsonify({"data_preview": df.head().to_dict()})
-    except Exception as e:
-        return jsonify({"error": str(e)})
-
+# ✅ Force loading meals on first startup only
 if __name__ == '__main__':
     init_db()
-    load_excel_to_db()  # Load meal data on startup
+    load_excel_to_db()  # Load data ONCE
     app.run(host="0.0.0.0", port=10000)
