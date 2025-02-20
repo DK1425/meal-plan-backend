@@ -182,3 +182,13 @@ def preview_excel():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/debug/installed_packages', methods=['GET'])
+def check_installed_packages():
+    try:
+        import pkg_resources
+        installed_packages = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
+        return jsonify(installed_packages)
+    except Exception as e:
+        return jsonify({"error": f"Failed to check installed packages: {str(e)}"}), 500
+
+
