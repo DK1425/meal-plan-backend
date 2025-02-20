@@ -168,3 +168,17 @@ if __name__ == '__main__':
     init_db()
     load_excel_to_db()  # Load data ONCE
     app.run(host="0.0.0.0", port=10000)
+
+@app.route('/debug/preview_excel', methods=['GET'])
+def preview_excel():
+    """Debug endpoint to preview the first few rows of the meal plan Excel file."""
+    if not os.path.exists(EXCEL_FILE):
+        return jsonify({"error": "Meal plan file not found!"}), 404
+
+    try:
+        df = pd.read_excel(EXCEL_FILE, engine="openpyxl")
+        preview_data = df.head(10).to_dict(orient="records")  # Show first 10 rows
+        return jsonify({"preview": preview_data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
